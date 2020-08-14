@@ -9,8 +9,12 @@
       text-transform: uppercase;
       text-align:center;
     }
-    #appel{
+    #appelRecu{
       color:rgb(146, 14, 14);
+      font-weight:bold;
+    }
+    #appelLance{
+      color:rgb(72, 136, 82);
       font-weight:bold;
     }
   </style>
@@ -26,41 +30,59 @@
   <h3>Test audio stream v1 by Marie Bruggeman (server 24)</h3>
   <hr>
   <br/>
-  <button id="start" onclick="start()">Start</button>
-  <button id="stop" onclick="stop()" disabled>Stop</button>
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+  <button id="mute" disabled>Mute</button>
   <br/><br/><br/>
-  <p id="appel"></p>
+  <p id="appelRecu">Appel reçu</p>
+  <p id="appelLance">Appel lancé</p>
   <br/><br/>
   <audio id="audio" autoplay></audio>
 
 <script>
+$(document).ready(function() {
+  $("#appelRecu, #appelLance").hide();
+});
+
+var mute = false;
 var stream, recorder, sourceBuffer;
 const audio = document.getElementById("audio");
 const mime = "audio/webm;codecs=opus";
-const mediaSource = new MediaSource();
+mediaSource = new MediaSource();
 audio.src = URL.createObjectURL(mediaSource);
 
 
-const ws = new WebSocket('wss://www.salutem.co:1338/');
+const ws = new WebSocket('ws://localhost:1338/');
 ws.binaryType = 'arraybuffer';
 ws.onopen = function() {
   console.log('WebSocket Client Connected');
 };
 
 ws.onmessage = function(evt) {
-  if(evt.data == "start"){ // Start
+  message = evt.data;
+  if(message == "start"){ // Start
     console.log("appel reçu");
     audio.controls = true;
-    $("#appel").html("Appel reçu");
-    sourceBuffer = mediaSource.addSourceBuffer("audio/webm;codecs=opus");
+    $("#appelRecu").show();
+    sourceBuffer = mediaSource.addSourceBuffer(mime);
   }
-  else if(evt.data == "stop"){ // Stop
+  else if(message == "stop"){ // Stop
     console.log("appel terminé");
+    $("#appelRecu").hide();
     audio.controls = false;
-    $("#appel").html("");
+    sourceBuffer.addEventListener('updateend', function() {
+      mediaSource = new MediaSource();
+      audio.src = URL.createObjectURL(mediaSource);
+    });
   }
-  else{ // Réception des données audio
-    sourceBuffer.appendBuffer(evt.data);
+  else if (message.constructor === ArrayBuffer){ // Réception des données audio
+    sourceBuffer.appendBuffer(message);
+  }
+  else if(message == "mute"){
+    $("#audio").prop("muted",true);
+  }
+  else if(message == "unmute"){
+    $("#audio").prop("muted",false);
   }
 };
 
@@ -71,7 +93,6 @@ async function start() {
 
   recorder.start(20); // Timeslice de  20ms
 
-  await new Promise(r => (recorder.onstart = r));
   recorder.ondataavailable = async event => {
     var reader = new FileReader();
     reader.addEventListener("loadend", function () {
@@ -84,17 +105,35 @@ async function start() {
 
 $("#start").click(function(){
   ws.send("start");
-  $("#appel").html("Appel lancé");
+  start();
+  $("#appelLance").show();
   $("#start").attr("disabled",true);
-  $("#stop").attr("disabled",false);
+  $("#stop, #mute").attr("disabled",false);
 });
 
 $("#stop").click(function(){
   ws.send("stop");
   if (recorder) recorder.stop();
-  $("#appel").html("");
+  $("#appelLance").hide();
   $("#start").attr("disabled",false);
-  $("#stop").attr("disabled",true);
+  $("#stop, #mute").attr("disabled",true);
+
+  // Unmute
+  var mute = false;
+  $("#mute").html("Mute");
+  ws.send("unmute");
+});
+
+$("#mute").click(function(){
+  if(mute){
+    ws.send("unmute");
+    $("#mute").html("Mute");
+  }
+  else{
+    ws.send("mute");
+    $("#mute").html("Unmute");
+  }
+  mute = !mute;
 });
 </script>
 
