@@ -52,7 +52,7 @@ mediaSource = new MediaSource();
 audio.src = URL.createObjectURL(mediaSource);
 
 
-const ws = new WebSocket('ws://localhost:1338/');
+const ws = new WebSocket('wss://www.salutem.co:1338/');
 ws.binaryType = 'arraybuffer';
 ws.onopen = function() {
   console.log('WebSocket Client Connected');
