@@ -11,8 +11,8 @@ var https = require('https');
 var httpsServer = https.createServer(credentials);
 httpsServer.listen(1338);
 
-var WebSocketServer = require('ws').Server;
-var wss = new WebSocketServer({
+var WebSocket = require('ws');
+var wss = new WebSocket.Server({
   server: httpsServer
 });
 
@@ -22,9 +22,10 @@ wss.on('connection', function(ws) {
   ws.on('message', function(msg) {
     wss.clients.forEach(function(client) {
       //if (client !== this && client.readyState === WebSocketServer.OPEN) {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(msg);
         //console.log("B: "+ this +" || "+ msg);
-      //}
+      }
     });
   });
 });
