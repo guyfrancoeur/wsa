@@ -8,14 +8,24 @@
     h3{
       text-transform: uppercase;
       text-align:center;
+      font-size:18px;
     }
-    #appelRecu{
-      color:rgb(146, 14, 14);
+    h5{ margin-top:0px; }
+    #statutAppel{
+      color:rgb(68, 90, 163);
       font-weight:bold;
+      text-transform:uppercase;
+      font-size:12px;
     }
-    #appelLance{
-      color:rgb(72, 136, 82);
-      font-weight:bold;
+    div{
+      width:50%;
+      border: 1px solid rgb(150,150,150);
+      border-radius:10px;
+      padding:10px;
+    }
+    #yn{
+      border:none;
+      padding-left:0px;
     }
   </style>
   <script src="//code.jquery.com/jquery-1.10.1.min.js"></script>
@@ -29,64 +39,75 @@
 <body>
   <h3>Test audio stream v1 by Marie Bruggeman (server 24)</h3>
   <hr>
-  <br/>
-  <button id="start">Start</button>
-  <button id="stop" disabled>Stop</button>
-  <button id="mute" disabled>Mute</button>
-  <br/><br/><br/>
-  <p id="appelRecu">Appel reçu</p>
-  <p id="appelLance">Appel lancé</p>
   <br/><br/>
-  <audio id="audio" autoplay></audio>
-
+  <div>
+    <h5>Gestion appel</h5>
+    <button id="bstart">Start</button>
+    <button id="bstop" disabled>Stop</button>
+    <button id="bmute" disabled>Mute</button>
+    <br/><br/>
+  </div>
+  <br/>
+  <div>
+    <p id="statutAppel">Aucun appel en cours</p>
+    <div id="yn">
+      <button id="baccepter">Accepter</button>
+      <button id="brefuser">Refuser</button>
+    </div>
+    <audio id="audio" autoplay></audio>
+  </div>
 <script>
 $(document).ready(function() {
-  $("#appelRecu, #appelLance").hide();
+  $("#yn").hide();
 });
 
-var mute = false;
 var stream, recorder, sourceBuffer;
 const audio = document.getElementById("audio");
 const mime = "audio/webm;codecs=opus";
-mediaSource = new MediaSource();
-audio.src = URL.createObjectURL(mediaSource);
 
+function createAudio(){
+  mediaSource = new MediaSource();
+  audio.src = URL.createObjectURL(mediaSource);
+  mediaSource.addEventListener('sourceopen', function(){
+    sourceBuffer = mediaSource.addSourceBuffer(mime);
+  });
+}
 
 const ws = new WebSocket('wss://www.salutem.co:1338/');
 ws.binaryType = 'arraybuffer';
 ws.onopen = function() {
   console.log('WebSocket Client Connected');
+  createAudio();
 };
 
 ws.onmessage = function(evt) {
-  message = evt.data;
-  if(message == "start"){ // Start
-    console.log("appel reçu");
-    audio.controls = true;
-    $("#appelRecu").show();
-    sourceBuffer = mediaSource.addSourceBuffer(mime);
-  }
-  else if(message == "stop"){ // Stop
-    console.log("appel terminé");
-    $("#appelRecu").hide();
-    audio.controls = false;
-    sourceBuffer.addEventListener('updateend', function() {
-      mediaSource = new MediaSource();
-      audio.src = URL.createObjectURL(mediaSource);
-    });
-  }
-  else if (message.constructor === ArrayBuffer){ // Réception des données audio
-    sourceBuffer.appendBuffer(message);
-  }
-  else if(message == "mute"){
-    $("#audio").prop("muted",true);
-  }
-  else if(message == "unmute"){
-    $("#audio").prop("muted",false);
+  msg = evt.data;
+  switch (msg) {
+    case 'start' :
+      console.log("appel reçu");
+      $("#statutAppel").html("Appel reçu");
+      $("#yn").show();
+      break;
+
+    case 'stop' :
+      stopCall();
+      break;
+
+    case 'accepter' :
+      startCall();
+      break;
+
+    case 'refuser' :
+      $("#statutAppel").html("Appel refusé");
+      break;
+
+    default: // Réception des données audio
+      if (mediaSource.readyState === 'open') sourceBuffer.appendBuffer(msg);
+      break;
   }
 };
 
-async function start() {
+async function startRecord() {
   if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
   if (!recorder) recorder = new MediaRecorder(stream, { mimeType: mime });
@@ -103,38 +124,58 @@ async function start() {
   };
 }
 
-$("#start").click(function(){
+$("#bstart").click(function(){
   ws.send("start");
-  start();
-  $("#appelLance").show();
-  $("#start").attr("disabled",true);
-  $("#stop, #mute").attr("disabled",false);
+  $("#statutAppel").html("Appel demandé");
 });
 
-$("#stop").click(function(){
+$("#bstop").click(function(){
   ws.send("stop");
+  stopCall();
+});
+
+$("#baccepter").click(function(){
+  ws.send("accepter");
+  $("#yn").hide();
+  startCall();
+});
+
+$("#brefuser").click(function(){
+  ws.send("refuser");
+  $("#yn").hide();
+  $("#statutAppel").html("Appel refusé");
+});
+
+$("#bmute").click(function(){
+ if(recorder.state == 'recording'){
+   recorder.pause();
+   $("#bmute").html("Unmute");
+ }
+ else if(recorder.state == 'paused'){
+   recorder.resume();
+   $("#bmute").html("Mute");
+ }
+});
+
+function startCall(){
+  startRecord();
+  audio.controls = true;
+  $("#statutAppel").html("Appel en cours ...");
+  $("#bstart").attr("disabled",true);
+  $("#bstop, #bmute").attr("disabled",false);
+}
+
+function stopCall(){
+  console.log("appel terminé");
+  audio.controls = false;
+  $("#statutAppel").html("Appel terminé");
+  $("#bstart").attr("disabled",false);
+  $("#bstop, #bmute").attr("disabled",true);
+  $("#bmute").html("Mute");
+
   if (recorder) recorder.stop();
-  $("#appelLance").hide();
-  $("#start").attr("disabled",false);
-  $("#stop, #mute").attr("disabled",true);
-
-  // Unmute
-  var mute = false;
-  $("#mute").html("Mute");
-  ws.send("unmute");
-});
-
-$("#mute").click(function(){
-  if(mute){
-    ws.send("unmute");
-    $("#mute").html("Mute");
-  }
-  else{
-    ws.send("mute");
-    $("#mute").html("Unmute");
-  }
-  mute = !mute;
-});
+  sourceBuffer.addEventListener('updateend', createAudio);
+}
 </script>
 
 </body>
