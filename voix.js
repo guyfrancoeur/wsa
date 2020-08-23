@@ -16,17 +16,29 @@ var wss = new WebSocket.Server({
   server: httpsServer
 });
 
+firstChunks = [];
+
 wss.on('connection', function(ws) {
   console.log('Nouvelle connexion : '+ ws);
   
+  if (firstChunks.length > 0){
+    ws.send(JSON.stringify({
+      type: "firstchunks",
+      data: firstChunks
+    }));
+  }
+
   ws.on('message', function(msg) {
-    wss.clients.forEach(function(client) {
-      //if (client !== this && client.readyState === WebSocketServer.OPEN) {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(msg);
-        //console.log("B: "+ this +" || "+ msg);
-      }
-    });
+    parsed = JSON.parse(msg);
+    if (parsed.type == "firstchunks") firstChunks = parsed.data[0].concat(parsed.data[1]); // Fusion 1er et 2eme paquets données audio
+    else{
+      wss.clients.forEach(function(client) {
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
+          client.send(msg);
+          //console.log("B: "+ this +" || "+ msg);
+        }
+      });
+    }
   });
 });
 
