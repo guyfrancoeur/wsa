@@ -81,23 +81,23 @@
 $(document).ready(function() {
   $("#statutreception, #audio, #errReception, #errEnvoi").hide();
 });
+
 start = 0;
 var stream, recorder;
-const audio = document.getElementById("audio");
 const mime = "audio/webm;codecs=opus";
+const audio = document.getElementById("audio");
 
 audio.onplaying = (e) => {
   $("#statutreception").html("Appel reçu ...");
   $("#errEnvoi").hide();
 }
-audio.onpause = (e) => {
+audio.onpause = (e) => { sendErrorMessage(); }
+
+function sendErrorMessage(){ // Quand l'audio se bloque, affichage d'un message pour prévenir l'utilisateur
+  console.log("envoi err message");
   $("#statutreception").html("Appel interrompu");
   $("#errReception").show();
-  ws.send(JSON.stringify({
-    type: "blocageaudio"
-  }));
-  // Si se bloque => sourceBuffer.updating = true (= fonction remove() a été appelée)
-  // Puis sourceBffer n'est plus attaché au MediaSource => MediaSource n'a plus aucun sourceBuffer => mediaSource.readystate = closed
+  ws.send(JSON.stringify({ type: "blocageaudio" }));
 }
 
 function createAudio(){
@@ -106,8 +106,20 @@ function createAudio(){
   mediaSource.addEventListener('sourceopen', function(){
     sourceBuffer = mediaSource.addSourceBuffer(mime);
     sourceBuffer.mode = 'sequence';
-    sourceBuffer.onerror = function(e){ console.error(e); }
     console.log("audio créé");
+
+    ['abort', 'error', 'remove'].forEach(name => {
+      sourceBuffer.addEventListener(name, e => {
+        console.error('SourceBuffer : ' + e.type);
+        sendErrorMessage();
+      });
+    });
+
+    ['sourceended', 'sourceclose'].forEach(name => {
+      mediaSource.addEventListener(name, e => {
+        console.error('MediaSource : ' + e.type);
+      });
+    });
   });
 }
 
@@ -122,11 +134,13 @@ ws.onmessage = function(evt) {
   msg = JSON.parse(evt.data);
   switch (msg.type) {
     case 'start':
+      console.log("start");
       $("#errReception").hide();
       start = 1;
       break;
 
     case 'stop':
+      console.log("stop");
       $("#errReception").hide();
       $("#statutreception").html("Aucun appel reçu");
       start = 0;
@@ -146,54 +160,75 @@ ws.onmessage = function(evt) {
       break;
 
     case 'audio': // Réception des données audio
-      if (connecte == 1 && start == 1 && mediaSource.readyState === 'open' && sourceBuffer.updating == false){
-        console.log("reception données audio");
-        sourceBuffer.appendBuffer(Uint8Array.from(msg.data));
-      }else{
-        console.error("connecté : " + connecte +  " | start : " + start + " | mediasource.readystate : " + mediaSource.readyState + 
-                      " | sourceBuffer.updating : " + sourceBuffer.updating);
+      if(connecte == 1){
+        if (start == 1 && mediaSource.readyState === 'open' && sourceBuffer.updating == false){
+          console.log("reception données audio | Taille : " + Uint8Array.from(msg.data).length);
+          sourceBuffer.appendBuffer(Uint8Array.from(msg.data));
+        }else{
+          console.error("start : " + start + " | mediasource.readystate : " + mediaSource.readyState + 
+                        " | sourceBuffer.updating : " + sourceBuffer.updating + " | Data size : " + Uint8Array.from(msg.data).length);
+        }
       }
       break;
   }
 };
 
 async function startRecord() {
-  if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleSize: 8, echoCancellation: true } });
-  if (!recorder) recorder = new MediaRecorder(stream, { mimeType: mime });
+  try {
+    if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleSize: 8, echoCancellation: true } });
+    if (!recorder) recorder = new MediaRecorder(stream, { mimeType: mime });
 
-  recorder.start(20); // Timeslice de  20ms
+    recorder.start(20); // Timeslice de  20ms
 
-  var cpt = 0;
-  var firstchunks = [];
+    var cpt = 0;
+    var firstchunks = [];
 
-  recorder.ondataavailable = async event => {
-    if (event.data.size > 0) {
-      var reader = new FileReader();
-      reader.addEventListener("loadend", function () {
-        //console.log(reader.result);
-        console.log("envoi données audio");
-        var res = [...new Uint8Array(reader.result)];
-        ws.send(JSON.stringify({
-          type: "audio",
-          data: res
-        }));
-
-        // Récupération et envoi des deux premiers paquets de l'enregistrement
-        if(cpt < 2){
-          firstchunks.push(res);
-          cpt ++;
-        }
-        if(cpt == 2){
-          console.log("envoi first chunks");
+    recorder.ondataavailable = async event => {
+      if (event.data.size > 0) {
+        var reader = new FileReader();
+        reader.addEventListener("loadend", function () {
+          console.log("envoi données audio");
+          var res = [...new Uint8Array(reader.result)];
           ws.send(JSON.stringify({
-            type: "firstchunks",
-            data: firstchunks
+            type: "audio",
+            data: res
           }));
-          cpt = 3;
+          
+          // Récupération et envoi des deux premiers paquets de l'enregistrement
+          if(cpt < 2){
+            firstchunks.push(res);
+            cpt ++;
+          }
+          if(cpt == 2){
+            console.log("envoi first chunks");
+            ws.send(JSON.stringify({
+              type: "firstchunks",
+              data: firstchunks
+            }));
+            cpt = 3;
+          }
+        });
+
+        // Si (event.data.size == 1), ça bloque le sourceBuffer de la personne qui reçoit les données. Alors on ne l'envoie pas et on redémarre l'enregistrement.
+        if(event.data.size == 1 && cpt == 3){ // (cpt == 3) => pour laisser passer les deux premiers paquets de données (le premier paquet de l'enregistrement a une taille de 1 lui aussi)
+          console.warn("Data size : " + event.data.size + " => restart record");
+          ws.send(JSON.stringify({ type: "stop" }));
+          if (recorder.state == 'recording') recorder.stop();
+          console.log("stop");
+          setTimeout(function(){
+            ws.send(JSON.stringify({ type: "start" }));
+            startRecord();
+            console.log("start");
+          }, 500);
         }
-      });
-      reader.readAsArrayBuffer(event.data);
+        else reader.readAsArrayBuffer(event.data);
+      }
     }
+
+    recorder.onerror = function(event) { console.log(event.error); }
+
+  } catch(err) {
+    console.log(err.name + " : " + err.message);
   }
 }
 
@@ -211,9 +246,8 @@ $("#bsubmit").click(function(){
 });
 
 $("#bstart").click(function(){
-  ws.send(JSON.stringify({
-    type: "start"
-  }));
+  console.log("start");
+  ws.send(JSON.stringify({ type: "start" }));
   startRecord();
   $("#statutenvoi").html("Appel en cours ...");
   $("#bstart").attr("disabled",true);
@@ -221,10 +255,9 @@ $("#bstart").click(function(){
 });
 
 $("#bstop").click(function(){
-  ws.send(JSON.stringify({
-    type: "stop"
-  }));
-  if (recorder) recorder.stop();
+  console.log("stop");
+  ws.send(JSON.stringify({ type: "stop" }));
+  if (recorder.state == 'recording') recorder.stop();
   $("#statutenvoi").html("Aucun appel envoyé");
   $("#bstart").attr("disabled",false);
   $("#bstop, #bmute").attr("disabled",true);
