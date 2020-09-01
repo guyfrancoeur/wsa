@@ -21,7 +21,7 @@ firstChunks = [];
 wss.on('connection', function(ws) {
   console.log('Nouvelle connexion : '+ ws);
 
-  // Envoi des first chunks uniquement si un appel a déjà été commencé
+  // Envoi des first chunks uniquement si un appel a déjà été commencé (pas de msg start)
   if (firstChunks.length > 0 && appelDejaCommence()){
     ws.send(JSON.stringify({
       type: "firstchunks",
@@ -42,6 +42,16 @@ wss.on('connection', function(ws) {
       case 'firstchunks':
         // (firstChunks.length == 0 ) => Ajout seulement si aucun first chunks n'a été sauvegardé. Ensuite, plus besoin de les changer.
         if(firstChunks.length == 0 ) firstChunks = parsed.data[0].concat(parsed.data[1]); // Fusion 1er et 2eme paquets données audio
+          
+        // Si un qqun est connecté sur le serveur Websocket, et n'a pas encore entré de pseudo (considéré comme ayant "name = undefined") et que quelqu'un lance un appel (réception msg start)
+        wss.clients.forEach(function(client) {
+          if(client.name == undefined){
+            client.send(JSON.stringify({
+              type: "firstchunks",
+              data: firstChunks
+            }));
+          }
+        });
         break;
 
       default:

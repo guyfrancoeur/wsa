@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -145,13 +144,19 @@ ws.onmessage = function(evt) {
       $("#errEnvoi").show();
       break;
 
-    case 'firstchunks': // Déclanché uniquement lorsqu'on rejoint un appel qui a déjà commencé
+    case 'firstchunks':
       fc = Uint8Array.from(msg.data);
-      mediaSource.addEventListener('sourceopen', function(){
+      if(mediaSource.readyState == 'open'){
         console.log("réception first chunks");
         sourceBuffer.appendBuffer(fc);
         start = 1;
-      });
+      }else{
+        mediaSource.addEventListener('sourceopen', function(){
+          console.log("réception first chunks");
+          sourceBuffer.appendBuffer(fc);
+          start = 1;
+        });
+      }
       break;
 
     case 'audio': // Réception des données audio
@@ -234,6 +239,10 @@ $("#bsubmit").click(function(){
     $("#consigne, #form_connexion").hide();
     pseudo = $("#name").val();
     $("#pseudo").html(pseudo);
+    ws.send(JSON.stringify({
+      name: pseudo,
+      type: "newuser"
+    }));
   }
 });
 
