@@ -20,8 +20,9 @@ firstChunks = [];
 
 wss.on('connection', function(ws) {
   console.log('Nouvelle connexion : '+ ws);
-  
-  if (firstChunks.length > 0){
+
+  // Envoi des first chunks uniquement si un appel a déjà été commencé
+  if (firstChunks.length > 0 && appelDejaCommence()){
     ws.send(JSON.stringify({
       type: "firstchunks",
       data: firstChunks
@@ -30,16 +31,45 @@ wss.on('connection', function(ws) {
 
   ws.on('message', function(msg) {
     parsed = JSON.parse(msg);
-    if (parsed.type == "firstchunks") firstChunks = parsed.data[0].concat(parsed.data[1]); // Fusion 1er et 2eme paquets données audio
-    else{
+    if(parsed.type == "start") ws.start = 1;
+    if(parsed.type == "stop") ws.start = 0;
+
+    switch (parsed.type) {
+      case 'newuser':
+        ws.name = parsed.name;
+        break;
+
+      case 'firstchunks':
+        // (firstChunks.length == 0 ) => Ajout seulement si aucun first chunks n'a été sauvegardé. Ensuite, plus besoin de les changer.
+        if(firstChunks.length == 0 ) firstChunks = parsed.data[0].concat(parsed.data[1]); // Fusion 1er et 2eme paquets données audio
+        break;
+
+      default:
+        wss.clients.forEach(function(client) {
+          if (client !== ws && client.readyState === WebSocket.OPEN) {
+            client.send(msg);
+            //console.log("B: "+ this +" || "+ msg);
+          }
+        });
+    }
+  });
+
+  ws.on('close', function() {
+    // Si la personne qui se déconnecte a oublié d'arrêter un appel qu'elle a lancé, envoi d'un stop aux autres personnes pour mettre à jour leur objet audio
+    if(ws.start == 1){
       wss.clients.forEach(function(client) {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(msg);
-          //console.log("B: "+ this +" || "+ msg);
-        }
+        client.send(JSON.stringify({ type: "stop" }));
       });
     }
   });
+
+  function appelDejaCommence(){
+    var res = 0;
+    wss.clients.forEach(function(client) {
+      if(client.start == 1) res = 1;
+    });
+    return res;
+  }
 });
 
 console.log("websocketserver listening on port 1338 " + new Date());

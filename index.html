@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -21,12 +22,10 @@
       text-transform:uppercase;
       font-size:12px;
     }
-    div{
-      width:50%;
+    .stylediv{
       border: 1px solid rgb(150,150,150);
       border-radius:10px;
       padding:10px;
-      margin-left:20px;
     }
     #consigne{
       font-size:12px;
@@ -48,35 +47,37 @@
 </head>
 
 <body>
-  <h3>Test audio stream v1 by Marie Bruggeman (server 24)</h3>
+  <h3>Test audio stream v1.3 by Marie Bruggeman (server 25)</h3>
   <hr>
   <br/>
-  <div>
-    <p id="consigne">Identifiez-vous d'abord pour pouvoir recevoir ou envoyer un appel</p>
-    <span>Votre pseudo : <span id="pseudo"></span></span>
-    <span  id="form_connexion">
-      <input type="text" name="name" id="name" placeholder="Entrez ici votre pseudo" required>
-      <button id="bsubmit"><i class="fas fa-check"></i></button>
-    </span>
+  <div class="col-md-6 col-12">
+    <div class="stylediv">
+      <p id="consigne">Identifiez-vous d'abord pour pouvoir recevoir ou envoyer un appel</p>
+      <span>Votre pseudo : <span id="pseudo"></span></span>
+      <span  id="form_connexion">
+        <input type="text" name="name" id="name" placeholder="Entrez ici votre pseudo" required>
+        <button id="bsubmit"><i class="fas fa-check"></i></button>
+      </span>
+    </div>
+    <br/>
+    <div class="stylediv">
+      <h5>Gestion envoi appel</h5>
+      <button id="bstart" disabled><i id="bstarticon" class="fas fa-phone"></i></button>
+      <button id="bstop" disabled><i id="bstopicon" class="fas fa-phone-slash"></i></button>
+      <button id="bmute" disabled><i id="bmuteicon" class="fas fa-microphone-alt-slash"></i> Mute</button>
+      <br/><br/>
+      <p id="statutenvoi">Aucun appel envoyé</p>
+      <p id="errEnvoi">L'autre personne ne vous entend plus. Veuillez arrêter puis redémarrer l'appel. <i class="fas fa-spinner fa-pulse"></i></p>
+    </div>
+    <br/>
+    <div class="stylediv">
+      <h5>Réception appels</h5>
+      <p id="statutreception">Aucun appel reçu</p>
+      <audio id="audio" controls autoplay></audio>
+      <p id="errReception">Plus de son. L'autre personne a un problème de connexion. <i class="fas fa-spinner fa-pulse"></i></p>
+    </div>
   </div>
-  <br/>
-  <div>
-    <h5>Gestion envoi appel</h5>
-    <button id="bstart" disabled><i id="bstarticon" class="fas fa-phone"></i></button>
-    <button id="bstop" disabled><i id="bstopicon" class="fas fa-phone-slash"></i></button>
-    <button id="bmute" disabled><i id="bmuteicon" class="fas fa-microphone-alt-slash"></i> Mute</button>
-    <br/><br/>
-    <p id="statutenvoi">Aucun appel envoyé</p>
-    <p id="errEnvoi">L'autre personne ne vous entend plus. Veuillez arrêter puis redémarrer l'appel. <i class="fas fa-spinner fa-pulse"></i></p>
-  </div>
-  <br/>
-  <div>
-    <h5>Réception appels</h5>
-    <p id="statutreception">Aucun appel reçu</p>
-    <audio id="audio" controls autoplay></audio>
-    <p id="errReception">Plus de son. L'autre personne a un problème de connexion. <i class="fas fa-spinner fa-pulse"></i></p>
-  </div>
-
+  
 <script>
 $(document).ready(function() {
   $("#statutreception, #audio, #errReception, #errEnvoi").hide();
@@ -94,7 +95,7 @@ audio.onplaying = (e) => {
 audio.onpause = (e) => { sendErrorMessage(); }
 
 function sendErrorMessage(){ // Quand l'audio se bloque, affichage d'un message pour prévenir l'utilisateur
-  console.log("envoi err message");
+  console.log("envoi message erreur");
   $("#statutreception").html("Appel interrompu");
   $("#errReception").show();
   ws.send(JSON.stringify({ type: "blocageaudio" }));
@@ -114,21 +115,14 @@ function createAudio(){
         sendErrorMessage();
       });
     });
-
-    ['sourceended', 'sourceclose'].forEach(name => {
-      mediaSource.addEventListener(name, e => {
-        console.error('MediaSource : ' + e.type);
-      });
-    });
   });
 }
 
 const ws = new WebSocket('wss://www.salutem.co:1338/');
-//ws.binaryType = 'arraybuffer';
 ws.onopen = function() {
   console.log('WebSocket Client Connected');
   createAudio();
-};
+}
 
 ws.onmessage = function(evt) {
   msg = JSON.parse(evt.data);
@@ -151,27 +145,27 @@ ws.onmessage = function(evt) {
       $("#errEnvoi").show();
       break;
 
-    case 'firstchunks':
+    case 'firstchunks': // Déclanché uniquement lorsqu'on rejoint un appel qui a déjà commencé
+      fc = Uint8Array.from(msg.data);
       mediaSource.addEventListener('sourceopen', function(){
         console.log("réception first chunks");
-        sourceBuffer.appendBuffer(Uint8Array.from(msg.data));
+        sourceBuffer.appendBuffer(fc);
         start = 1;
       });
       break;
 
     case 'audio': // Réception des données audio
-      if(connecte == 1){
-        if (start == 1 && mediaSource.readyState === 'open' && sourceBuffer.updating == false){
-          console.log("reception données audio | Taille : " + Uint8Array.from(msg.data).length);
+      if(connecte == 1 && start == 1){
+        if (mediaSource.readyState === 'open' && sourceBuffer.updating == false){
           sourceBuffer.appendBuffer(Uint8Array.from(msg.data));
         }else{
-          console.error("start : " + start + " | mediasource.readystate : " + mediaSource.readyState + 
+          console.error("Ajout données audio au buffer impossible \n start : " + start + " | mediasource.readystate : " + mediaSource.readyState + 
                         " | sourceBuffer.updating : " + sourceBuffer.updating + " | Data size : " + Uint8Array.from(msg.data).length);
         }
       }
       break;
   }
-};
+}
 
 async function startRecord() {
   try {
@@ -187,7 +181,6 @@ async function startRecord() {
       if (event.data.size > 0) {
         var reader = new FileReader();
         reader.addEventListener("loadend", function () {
-          console.log("envoi données audio");
           var res = [...new Uint8Array(reader.result)];
           ws.send(JSON.stringify({
             type: "audio",
@@ -200,7 +193,6 @@ async function startRecord() {
             cpt ++;
           }
           if(cpt == 2){
-            console.log("envoi first chunks");
             ws.send(JSON.stringify({
               type: "firstchunks",
               data: firstchunks
@@ -225,17 +217,17 @@ async function startRecord() {
       }
     }
 
-    recorder.onerror = function(event) { console.log(event.error); }
+    recorder.onerror = function(event) { console.error(event.error); }
 
   } catch(err) {
-    console.log(err.name + " : " + err.message);
+    console.error(err.name + " : " + err.message);
   }
 }
 
 connecte = 0;
 var pseudo;
 $("#bsubmit").click(function(){
-  if($("#name").length > 0){
+  if($("#name").val().length > 0){
     connecte = 1;
     $("#bstart").attr("disabled",false);
     $("#statutreception, #audio").show();
