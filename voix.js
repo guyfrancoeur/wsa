@@ -16,46 +16,16 @@ firstChunks = [];
 wss.on('connection', function(ws) {
   console.log('Nouvelle connexion : '+ ws);
 
-  // Envoi des first chunks uniquement si un appel a déjà été commencé (pas de msg start)
-  if (firstChunks.length > 0 && appelDejaCommence()){
-    ws.send(JSON.stringify({
-      type: "firstchunks",
-      data: firstChunks
-    }));
-  }
+  // Envoi first chunks dès la connexion
+  ws.send(JSON.stringify({
+    type: "firstchunks",
+    data: firstChunks
+  }));
 
   ws.on('message', function(msg) {
-    parsed = JSON.parse(msg);
-    if(parsed.type == "start") ws.start = 1;
-    if(parsed.type == "stop") ws.start = 0;
-
-    switch (parsed.type) {
-      case 'newuser':
-        ws.name = parsed.name;
-        break;
-
-      case 'firstchunks':
-        // (firstChunks.length == 0 ) => Ajout seulement si aucun first chunks n'a été sauvegardé. Ensuite, plus besoin de les changer.
-        if(firstChunks.length == 0 ) firstChunks = parsed.data[0].concat(parsed.data[1]); // Fusion 1er et 2eme paquets données audio
-          
-        // Si un qqun est connecté sur le serveur Websocket, et n'a pas encore entré de pseudo (considéré comme ayant "name = undefined") et que quelqu'un lance un appel (réception msg start)
-        wss.clients.forEach(function(client) {
-          if(client.name == undefined){
-            client.send(JSON.stringify({
-              type: "firstchunks",
-              data: firstChunks
-            }));
-          }
-        });
-        break;
-
-      default:
-        wss.clients.forEach(function(client) {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(msg);
-          }
-        });
-    }
+    wss.clients.forEach(function(client) {
+      if (client !== ws && client.readyState === WebSocket.OPEN) client.send(msg);
+    });
   });
 
   ws.on('close', function() {
@@ -66,13 +36,6 @@ wss.on('connection', function(ws) {
       });
     }
   });
-
-  function appelDejaCommence(){
-    wss.clients.forEach(function(client) {
-      if (client.start == 1) { return 1; }
-    });
-    return 0;
-  }
 });
 
 console.log("websocketserver listening on port 1338 " + new Date());

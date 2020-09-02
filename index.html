@@ -30,10 +30,6 @@
       font-size:12px;
       color:rgb(180,180,180);
     }
-    #errReception, #errEnvoi{
-      color:red;
-      font-size: 12px;
-    }
     #bstarticon {color:rgb(89, 165, 70);}
     #bstopicon {color:rgb(173, 47, 47);}
     #bmuteicon {color:rgb(190,190,190);}
@@ -66,20 +62,18 @@
       <button id="bmute" disabled><i id="bmuteicon" class="fas fa-microphone-alt-slash"></i> Mute</button>
       <br/><br/>
       <p id="statutenvoi">Aucun appel envoyé</p>
-      <p id="errEnvoi">L'autre personne ne vous entend plus. Veuillez arrêter puis redémarrer l'appel. <i class="fas fa-spinner fa-pulse"></i></p>
     </div>
     <br/>
     <div class="stylediv">
       <h5>Réception appels</h5>
       <p id="statutreception">Aucun appel reçu</p>
       <audio id="audio" controls autoplay></audio>
-      <p id="errReception">Plus de son. L'autre personne a un problème de connexion. <i class="fas fa-spinner fa-pulse"></i></p>
     </div>
   </div>
 
 <script>
 $(document).ready(function() {
-  $("#statutreception, #audio, #errReception, #errEnvoi").hide();
+  $("#statutreception, #audio").hide();
 });
 
 start = 0;
@@ -89,16 +83,10 @@ const audio = document.getElementById("audio");
 
 audio.onplaying = (e) => {
   $("#statutreception").html("Appel reçu ...");
-  $("#errEnvoi").hide();
 }
 audio.onpause = (e) => { sendErrorMessage(); }
 
-function sendErrorMessage(){ // Quand l'audio se bloque, affichage d'un message pour prévenir l'utilisateur
-  console.log("envoi message erreur");
-  $("#statutreception").html("Appel interrompu");
-  $("#errReception").show();
-  ws.send(JSON.stringify({ type: "blocageaudio" }));
-}
+fc = []; // Sauvegarde des firstChunks reçus
 
 function createAudio(){
   mediaSource = new MediaSource();
@@ -108,11 +96,13 @@ function createAudio(){
     sourceBuffer.mode = 'sequence';
     console.log("audio créé");
 
-    ['abort', 'error', 'remove'].forEach(name => {
-      sourceBuffer.addEventListener(name, e => {
-        console.error('SourceBuffer : ' + e.type);
-        sendErrorMessage();
-      });
+    if(fc.length != 0){ // Ajout firstChunks
+      sourceBuffer.appendBuffer(fc);
+      sourceBuffer.onupdateend = (e) => { start = 1; }
+    }
+
+    sourceBuffer.addEventListener('error', e => {
+      console.error('SourceBuffer : ' + e.type);
     });
   });
 }
@@ -128,44 +118,25 @@ ws.onmessage = function(evt) {
   switch (msg.type) {
     case 'start':
       console.log("case start");
-      $("#errReception").hide();
-      start = 1;
       break;
 
     case 'stop':
       console.log("case stop");
-      $("#errReception").hide();
       $("#statutreception").html("Aucun appel reçu");
       start = 0;
       createAudio();
       break;
 
-    case 'blocageaudio':
-      $("#errEnvoi").show();
-      break;
-
     case 'firstchunks':
       fc = Uint8Array.from(msg.data);
-      if(mediaSource.readyState == 'open'){
-        console.log("réception first chunks");
-        sourceBuffer.appendBuffer(fc);
-        start = 1;
-      }else{
-        mediaSource.addEventListener('sourceopen', function(){
-          console.log("réception first chunks");
-          sourceBuffer.appendBuffer(fc);
-          start = 1;
-        });
-      }
       break;
 
     case 'audio': // Réception des données audio
-      if(connecte == 1 && start == 1){
-        if (mediaSource.readyState === 'open' && sourceBuffer.updating == false){
+      if(connecte == 1 && start == 1 && sourceBuffer.updating == false){
+        if (mediaSource.readyState === 'open'){
           sourceBuffer.appendBuffer(Uint8Array.from(msg.data));
         }else{
-          console.error("Ajout données audio au buffer impossible \n start : " + start + " | mediasource.readystate : " + mediaSource.readyState +
-                        " | sourceBuffer.updating : " + sourceBuffer.updating + " | Data size : " + Uint8Array.from(msg.data).length);
+          console.error("Ajout données audio au buffer impossible \n mediasource.readystate : " + mediaSource.readyState);
         }
       }
       break;
@@ -180,34 +151,23 @@ async function startRecord() {
     recorder.start(20); // Timeslice de  20ms
 
     var cpt = 0;
-    var firstchunks = [];
 
     recorder.ondataavailable = async event => {
       if (event.data.size > 0) {
         var reader = new FileReader();
         reader.addEventListener("loadend", function () {
           var res = [...new Uint8Array(reader.result)];
-          ws.send(JSON.stringify({
-            type: "audio",
-            data: res
-          }));
-
-          // Récupération et envoi des deux premiers paquets de l'enregistrement
-          if(cpt < 2){
-            firstchunks.push(res);
-            cpt ++;
-          }
-          if(cpt == 2){
+          if(cpt > 2){ // Ne pas envoyer les premiers paquets audio (à cause des firstChunks envoyés dès la connexion)
             ws.send(JSON.stringify({
-              type: "firstchunks",
-              data: firstchunks
+              type: "audio",
+              data: res
             }));
-            cpt = 3;
           }
+          cpt ++;
         });
 
         // Si (event.data.size == 1), ça bloque le sourceBuffer de la personne qui reçoit les données. Alors on ne l'envoie pas et on redémarre l'enregistrement.
-        if(event.data.size == 1 && cpt == 3){ // (cpt == 3) => pour laisser passer les deux premiers paquets de données (le premier paquet de l'enregistrement a une taille de 1 lui aussi)
+        if(event.data.size == 1 && cpt > 2){ // (cpt == 2) => pour laisser passer les deux premiers paquets de données (le premier paquet de l'enregistrement a une taille de 1 lui aussi)
           console.warn("Data size : " + event.data.size + " => restart record");
           ws.send(JSON.stringify({ type: "stop" }));
           if (recorder.state == 'recording') recorder.stop();
@@ -239,10 +199,6 @@ $("#bsubmit").click(function(){
     $("#consigne, #form_connexion").hide();
     pseudo = $("#name").val();
     $("#pseudo").html(pseudo);
-    ws.send(JSON.stringify({
-      name: pseudo,
-      type: "newuser"
-    }));
   }
 });
 
@@ -262,7 +218,6 @@ $("#bstop").click(function(){
   $("#statutenvoi").html("Aucun appel envoyé");
   $("#bstart").attr("disabled",false);
   $("#bstop, #bmute").attr("disabled",true);
-  $("#errEnvoi").hide();
 });
 
 $("#bmute").click(function(){
