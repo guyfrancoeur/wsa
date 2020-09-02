@@ -1,13 +1,8 @@
 const fs = require('fs');
-// read ssl certificate
 var privateKey = fs.readFileSync('/etc/ssl/private/privkey.pem', 'utf8');
 var certificate = fs.readFileSync('/etc/ssl/certs/fullchain.pem', 'utf8');
-
 var credentials = { key: privateKey, cert: certificate };
-
 var https = require('https');
-
-//pass in your credentials to create an https server
 var httpsServer = https.createServer(credentials);
 httpsServer.listen(1338);
 
@@ -58,7 +53,6 @@ wss.on('connection', function(ws) {
         wss.clients.forEach(function(client) {
           if (client !== ws && client.readyState === WebSocket.OPEN) {
             client.send(msg);
-            //console.log("B: "+ this +" || "+ msg);
           }
         });
     }
@@ -74,11 +68,10 @@ wss.on('connection', function(ws) {
   });
 
   function appelDejaCommence(){
-    var res = 0;
     wss.clients.forEach(function(client) {
-      if(client.start == 1) res = 1;
+      if (client.start == 1) { return 1; }
     });
-    return res;
+    return 0;
   }
 });
 
