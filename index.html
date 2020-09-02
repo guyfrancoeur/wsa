@@ -46,7 +46,7 @@
 </head>
 
 <body>
-  <h3>Test audio stream v1.3 by Marie Bruggeman (server 25)</h3>
+  <h3>Test audio stream v1.4 by Marie Bruggeman (server 24)</h3>
   <hr>
   <br/>
   <div class="col-md-6 col-12">
@@ -76,7 +76,7 @@
       <p id="errReception">Plus de son. L'autre personne a un problème de connexion. <i class="fas fa-spinner fa-pulse"></i></p>
     </div>
   </div>
-  
+
 <script>
 $(document).ready(function() {
   $("#statutreception, #audio, #errReception, #errEnvoi").hide();
@@ -127,13 +127,13 @@ ws.onmessage = function(evt) {
   msg = JSON.parse(evt.data);
   switch (msg.type) {
     case 'start':
-      console.log("start");
+      console.log("case start");
       $("#errReception").hide();
       start = 1;
       break;
 
     case 'stop':
-      console.log("stop");
+      console.log("case stop");
       $("#errReception").hide();
       $("#statutreception").html("Aucun appel reçu");
       start = 0;
@@ -164,7 +164,7 @@ ws.onmessage = function(evt) {
         if (mediaSource.readyState === 'open' && sourceBuffer.updating == false){
           sourceBuffer.appendBuffer(Uint8Array.from(msg.data));
         }else{
-          console.error("Ajout données audio au buffer impossible \n start : " + start + " | mediasource.readystate : " + mediaSource.readyState + 
+          console.error("Ajout données audio au buffer impossible \n start : " + start + " | mediasource.readystate : " + mediaSource.readyState +
                         " | sourceBuffer.updating : " + sourceBuffer.updating + " | Data size : " + Uint8Array.from(msg.data).length);
         }
       }
@@ -191,7 +191,7 @@ async function startRecord() {
             type: "audio",
             data: res
           }));
-          
+
           // Récupération et envoi des deux premiers paquets de l'enregistrement
           if(cpt < 2){
             firstchunks.push(res);
@@ -211,11 +211,11 @@ async function startRecord() {
           console.warn("Data size : " + event.data.size + " => restart record");
           ws.send(JSON.stringify({ type: "stop" }));
           if (recorder.state == 'recording') recorder.stop();
-          console.log("stop");
+          console.log("recorder stop");
           setTimeout(function(){
             ws.send(JSON.stringify({ type: "start" }));
             startRecord();
-            console.log("start");
+            console.log("recorder re-start");
           }, 500);
         }
         else reader.readAsArrayBuffer(event.data);
@@ -247,7 +247,7 @@ $("#bsubmit").click(function(){
 });
 
 $("#bstart").click(function(){
-  console.log("start");
+  console.log("button start");
   ws.send(JSON.stringify({ type: "start" }));
   startRecord();
   $("#statutenvoi").html("Appel en cours ...");
@@ -256,7 +256,7 @@ $("#bstart").click(function(){
 });
 
 $("#bstop").click(function(){
-  console.log("stop");
+  console.log("button stop");
   ws.send(JSON.stringify({ type: "stop" }));
   if (recorder.state == 'recording') recorder.stop();
   $("#statutenvoi").html("Aucun appel envoyé");
